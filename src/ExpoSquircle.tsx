@@ -6,6 +6,7 @@
  *   - default (ExpoSquircle)
  *
  * @license MIT. Copyright (c) Doğu Abaris.
+ * @author Doğu Abaris <abaris@null.net>
  */
 
 import React, { useCallback, useMemo, useState } from "react";
@@ -13,13 +14,22 @@ import { LayoutChangeEvent, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 
 import type { SquircleComponentProps } from "./ExpoSquircle.types";
+import { normalizeSquircleParams, shrinkRadius } from "./core/params";
+import { buildSquirclePath } from "./core/squircleMath";
+import type { NormalizedRoundedSurfaceOptions } from "./core/types";
 
 type MeasuredFrame = { width: number; height: number };
 
 /**
- * Render the Squircle View component.
+ * Renders the Squircle View component that draws the smooth background behind its children.
  *
- * @returns React element.
+ * @param squircleParams Squircle drawing options.
+ * @param children Optional React children to render inside the rounded view.
+ * @param style Optional style applied to the outer view.
+ * @param onLayout Layout callback forwarded from React Native.
+ * @param rest
+ * @returns React.ReactElement React element describing the wrapped view tree.
+ * @throws Error when `squircleParams` or its `smoothFactor` value are missing or invalid.
  */
 const ExpoSquircle: React.FC<SquircleComponentProps> = ({
   squircleParams,
@@ -29,6 +39,10 @@ const ExpoSquircle: React.FC<SquircleComponentProps> = ({
   ...rest
 }) => {
   const [frame, setFrame] = useState<MeasuredFrame | null>(null);
+  const normalizedParams = useMemo(
+    () => normalizeSquircleParams(squircleParams),
+    [squircleParams],
+  );
 
   const handleLayout = useCallback(
     (event: LayoutChangeEvent) => {
@@ -46,7 +60,7 @@ const ExpoSquircle: React.FC<SquircleComponentProps> = ({
 
   return (
     <View {...rest} style={style} onLayout={handleLayout}>
-      <SquircleBackdrop layout={frame} params={squircleParams} />
+      <SquircleBackdrop layout={frame} params={normalizedParams} />
       {children}
     </View>
   );
@@ -54,9 +68,16 @@ const ExpoSquircle: React.FC<SquircleComponentProps> = ({
 
 type SquircleBackdropProps = {
   layout: MeasuredFrame | null;
-  params: SquircleComponentProps["squircleParams"];
+  params: NormalizedRoundedSurfaceOptions;
 };
 
+/**
+ * Renders the react-native-svg backdrop using the normalized squircle params.
+ *
+ * @param layout Frame measured from the parent view.
+ * @param params Normalized drawing parameters.
+ * @returns React.ReactElement Invisible view containing the SVG path.
+ */
 const SquircleBackdrop: React.FC<SquircleBackdropProps> = ({
   layout,
   params,
@@ -65,15 +86,15 @@ const SquircleBackdrop: React.FC<SquircleBackdropProps> = ({
   const layoutHeight = layout?.height ?? 0;
 
   const {
-    baseRadius = 0,
+    baseRadius,
     topLeftRadius,
     topRightRadius,
     bottomRightRadius,
     bottomLeftRadius,
     smoothFactor,
-    surfaceColor = "#000",
-    borderColor = "#000",
-    borderWidth = 0,
+    surfaceColor,
+    borderColor,
+    borderWidth,
   } = params;
 
   const { path, insetAmount, renderedStrokeWidth } = useMemo(() => {
@@ -191,520 +212,5 @@ const SquircleBackdrop: React.FC<SquircleBackdropProps> = ({
     </View>
   );
 };
-
-function shrinkRadius(radius: number | undefined, insetAmount: number) {
-  if (typeof radius === "number") {
-    return Math.max(0, radius - insetAmount);
-  }
-
-  return radius;
-}
-
-type CornerId = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
-
-type CornerProfile = {
-  radius: number;
-  roundingAndSmoothingBudget: number;
-};
-
-type CornerProfiles = Record<CornerId, CornerProfile>;
-
-type CornerBudget = {
-  cornerRadius: number;
-  cornerSmoothing: number;
-  roundingAndSmoothingBudget: number;
-};
-
-type BezierPatch = {
-  a: number;
-  b: number;
-  c: number;
-  d: number;
-  p: number;
-  cornerRadius: number;
-  arcSectionLength: number;
-};
-
-type SquirclePathInput = {
-  cornerRadius?: number;
-  topLeftCornerRadius?: number;
-  topRightCornerRadius?: number;
-  bottomRightCornerRadius?: number;
-  bottomLeftCornerRadius?: number;
-  cornerSmoothing: number;
-  width: number;
-  height: number;
-  preserveSmoothing?: boolean;
-};
-
-const PATH_CACHE_LIMIT = 160;
-const PATH_CACHE_MAP = new Map<string, string>();
-const CORNER_PROFILE_CACHE = new Map<string, BezierPatch>();
-
-function composeCacheKey(data: {
-  width: number;
-  height: number;
-  cornerSmoothing: number;
-  preserveSmoothing: boolean;
-  cornerRadius: number;
-  topLeftCornerRadius: number;
-  topRightCornerRadius: number;
-  bottomRightCornerRadius: number;
-  bottomLeftCornerRadius: number;
-}) {
-  return [
-    data.width.toFixed(2),
-    data.height.toFixed(2),
-    data.cornerSmoothing.toFixed(4),
-    data.preserveSmoothing ? "1" : "0",
-    data.cornerRadius.toFixed(2),
-    data.topLeftCornerRadius.toFixed(2),
-    data.topRightCornerRadius.toFixed(2),
-    data.bottomRightCornerRadius.toFixed(2),
-    data.bottomLeftCornerRadius.toFixed(2),
-  ].join("|");
-}
-
-function readCachedPath(key: string) {
-  return PATH_CACHE_MAP.get(key);
-}
-
-function storeCachedPath(key: string, value: string) {
-  if (PATH_CACHE_MAP.size >= PATH_CACHE_LIMIT && !PATH_CACHE_MAP.has(key)) {
-    const iterator = PATH_CACHE_MAP.keys().next();
-    if (!iterator.done) {
-      PATH_CACHE_MAP.delete(iterator.value);
-    }
-  }
-  PATH_CACHE_MAP.set(key, value);
-}
-
-function buildSquirclePath({
-  cornerRadius = 0,
-  topLeftCornerRadius,
-  topRightCornerRadius,
-  bottomRightCornerRadius,
-  bottomLeftCornerRadius,
-  cornerSmoothing,
-  width,
-  height,
-  preserveSmoothing = false,
-}: SquirclePathInput) {
-  topLeftCornerRadius = topLeftCornerRadius ?? cornerRadius;
-  topRightCornerRadius = topRightCornerRadius ?? cornerRadius;
-  bottomLeftCornerRadius = bottomLeftCornerRadius ?? cornerRadius;
-  bottomRightCornerRadius = bottomRightCornerRadius ?? cornerRadius;
-
-  const cacheKey = composeCacheKey({
-    width,
-    height,
-    cornerSmoothing,
-    preserveSmoothing,
-    cornerRadius,
-    topLeftCornerRadius,
-    topRightCornerRadius,
-    bottomRightCornerRadius,
-    bottomLeftCornerRadius,
-  });
-
-  const cached = readCachedPath(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  if (
-    topLeftCornerRadius === topRightCornerRadius &&
-    topRightCornerRadius === bottomRightCornerRadius &&
-    bottomRightCornerRadius === bottomLeftCornerRadius &&
-    bottomLeftCornerRadius === topLeftCornerRadius
-  ) {
-    if (topLeftCornerRadius === 0) {
-      const rectanglePath = `M ${width} 0 L ${width} ${height} L 0 ${height} L 0 0 Z`;
-      storeCachedPath(cacheKey, rectanglePath);
-      return rectanglePath;
-    }
-
-    const budget = Math.min(width, height) / 2;
-    const radius = Math.min(topLeftCornerRadius, budget);
-
-    const pathParams = computeCornerProfile({
-      cornerRadius: radius,
-      cornerSmoothing,
-      preserveSmoothing,
-      roundingAndSmoothingBudget: budget,
-    });
-
-    const path = joinCornerProfiles({
-      width,
-      height,
-      topLeftPathParams: pathParams,
-      topRightPathParams: pathParams,
-      bottomLeftPathParams: pathParams,
-      bottomRightPathParams: pathParams,
-    });
-    storeCachedPath(cacheKey, path);
-    return path;
-  }
-
-  const corners = normalizeCorners({
-    topLeftCornerRadius,
-    topRightCornerRadius,
-    bottomRightCornerRadius,
-    bottomLeftCornerRadius,
-    width,
-    height,
-  });
-
-  const path = joinCornerProfiles({
-    width,
-    height,
-    topLeftPathParams: computeCornerProfile({
-      cornerRadius: corners.topLeft.radius,
-      cornerSmoothing,
-      preserveSmoothing,
-      roundingAndSmoothingBudget: corners.topLeft.roundingAndSmoothingBudget,
-    }),
-    topRightPathParams: computeCornerProfile({
-      cornerRadius: corners.topRight.radius,
-      cornerSmoothing,
-      preserveSmoothing,
-      roundingAndSmoothingBudget: corners.topRight.roundingAndSmoothingBudget,
-    }),
-    bottomRightPathParams: computeCornerProfile({
-      cornerRadius: corners.bottomRight.radius,
-      cornerSmoothing,
-      preserveSmoothing,
-      roundingAndSmoothingBudget:
-        corners.bottomRight.roundingAndSmoothingBudget,
-    }),
-    bottomLeftPathParams: computeCornerProfile({
-      cornerRadius: corners.bottomLeft.radius,
-      cornerSmoothing,
-      preserveSmoothing,
-      roundingAndSmoothingBudget: corners.bottomLeft.roundingAndSmoothingBudget,
-    }),
-  });
-
-  storeCachedPath(cacheKey, path);
-  return path;
-}
-
-type CornerSpreadInput = {
-  topLeftCornerRadius: number;
-  topRightCornerRadius: number;
-  bottomRightCornerRadius: number;
-  bottomLeftCornerRadius: number;
-  width: number;
-  height: number;
-};
-
-type EdgeOrientation = "top" | "bottom" | "left" | "right";
-
-const ADJACENT_RELATIONS: Record<
-  CornerId,
-  { side: EdgeOrientation; corner: CornerId }[]
-> = {
-  topLeft: [
-    { corner: "topRight", side: "top" },
-    { corner: "bottomLeft", side: "left" },
-  ],
-  topRight: [
-    { corner: "topLeft", side: "top" },
-    { corner: "bottomRight", side: "right" },
-  ],
-  bottomLeft: [
-    { corner: "bottomRight", side: "bottom" },
-    { corner: "topLeft", side: "left" },
-  ],
-  bottomRight: [
-    { corner: "bottomLeft", side: "bottom" },
-    { corner: "topRight", side: "right" },
-  ],
-};
-
-function normalizeCorners({
-  topLeftCornerRadius,
-  topRightCornerRadius,
-  bottomRightCornerRadius,
-  bottomLeftCornerRadius,
-  width,
-  height,
-}: CornerSpreadInput): CornerProfiles {
-  const radiusMap: Record<CornerId, number> = {
-    topLeft: topLeftCornerRadius,
-    topRight: topRightCornerRadius,
-    bottomLeft: bottomLeftCornerRadius,
-    bottomRight: bottomRightCornerRadius,
-  };
-
-  const budgetMap: Record<CornerId, number> = {
-    topLeft: -1,
-    topRight: -1,
-    bottomLeft: -1,
-    bottomRight: -1,
-  };
-
-  Object.entries(radiusMap)
-    .sort(([, r1], [, r2]) => r2 - r1)
-    .forEach(([cornerName, radius]) => {
-      const corner = cornerName as CornerId;
-      const adjacents = ADJACENT_RELATIONS[corner];
-
-      const budget = Math.min(
-        ...adjacents.map(({ corner: adjacentCorner, side }) => {
-          const adjacentRadius = radiusMap[adjacentCorner];
-          if (radius === 0 && adjacentRadius === 0) {
-            return 0;
-          }
-
-          const adjacentBudget = budgetMap[adjacentCorner];
-          const sideLength =
-            side === "top" || side === "bottom" ? width : height;
-
-          if (adjacentBudget >= 0) {
-            return sideLength - adjacentBudget;
-          }
-
-          return (radius / (radius + adjacentRadius)) * sideLength;
-        }),
-      );
-
-      budgetMap[corner] = budget;
-      radiusMap[corner] = Math.min(radius, budget);
-    });
-
-  return {
-    topLeft: {
-      radius: radiusMap.topLeft,
-      roundingAndSmoothingBudget: budgetMap.topLeft,
-    },
-    topRight: {
-      radius: radiusMap.topRight,
-      roundingAndSmoothingBudget: budgetMap.topRight,
-    },
-    bottomLeft: {
-      radius: radiusMap.bottomLeft,
-      roundingAndSmoothingBudget: budgetMap.bottomLeft,
-    },
-    bottomRight: {
-      radius: radiusMap.bottomRight,
-      roundingAndSmoothingBudget: budgetMap.bottomRight,
-    },
-  };
-}
-
-type BezierPatchInput = CornerBudget & {
-  preserveSmoothing: boolean;
-};
-
-function computeCornerProfile({
-  cornerRadius,
-  cornerSmoothing,
-  preserveSmoothing,
-  roundingAndSmoothingBudget,
-}: BezierPatchInput): BezierPatch {
-  const cacheKey = cornerProfileCacheKey({
-    cornerRadius,
-    cornerSmoothing,
-    preserveSmoothing,
-    roundingAndSmoothingBudget,
-  });
-  const cached = CORNER_PROFILE_CACHE.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  let p = (1 + cornerSmoothing) * cornerRadius;
-
-  if (!preserveSmoothing) {
-    const maxSmoothing = roundingAndSmoothingBudget / cornerRadius - 1;
-    cornerSmoothing = Math.min(cornerSmoothing, maxSmoothing);
-    p = Math.min(p, roundingAndSmoothingBudget);
-  }
-
-  const arcMeasure = 90 * (1 - cornerSmoothing);
-  const arcSectionLength =
-    Math.sin(degToRad(arcMeasure / 2)) * cornerRadius * Math.SQRT2;
-
-  const angleAlpha = (90 - arcMeasure) / 2;
-  const p3ToP4Distance = cornerRadius * Math.tan(degToRad(angleAlpha / 2));
-
-  const angleBeta = 45 * cornerSmoothing;
-  const c = p3ToP4Distance * Math.cos(degToRad(angleBeta));
-  const d = c * Math.tan(degToRad(angleBeta));
-
-  let b = (p - arcSectionLength - c - d) / 3;
-  let a = 2 * b;
-
-  if (preserveSmoothing && p > roundingAndSmoothingBudget) {
-    const p1ToP3MaxDistance =
-      roundingAndSmoothingBudget - d - arcSectionLength - c;
-    const minA = p1ToP3MaxDistance / 6;
-    const maxB = p1ToP3MaxDistance - minA;
-
-    b = Math.min(b, maxB);
-    a = p1ToP3MaxDistance - b;
-    p = Math.min(p, roundingAndSmoothingBudget);
-  }
-
-  const profile: BezierPatch = {
-    a,
-    b,
-    c,
-    d,
-    p,
-    cornerRadius,
-    arcSectionLength,
-  };
-
-  CORNER_PROFILE_CACHE.set(cacheKey, profile);
-  return profile;
-}
-
-function cornerProfileCacheKey({
-  cornerRadius,
-  cornerSmoothing,
-  preserveSmoothing,
-  roundingAndSmoothingBudget,
-}: BezierPatchInput) {
-  return [
-    cornerRadius.toFixed(3),
-    cornerSmoothing.toFixed(4),
-    preserveSmoothing ? "1" : "0",
-    roundingAndSmoothingBudget.toFixed(3),
-  ].join("|");
-}
-
-type PathParamsInput = {
-  width: number;
-  height: number;
-  topLeftPathParams: BezierPatch;
-  topRightPathParams: BezierPatch;
-  bottomLeftPathParams: BezierPatch;
-  bottomRightPathParams: BezierPatch;
-};
-
-function joinCornerProfiles({
-  width,
-  height,
-  topLeftPathParams,
-  topRightPathParams,
-  bottomLeftPathParams,
-  bottomRightPathParams,
-}: PathParamsInput) {
-  const segments = [
-    `M ${width - topRightPathParams.p} 0`,
-    traceTopRight(topRightPathParams),
-    `L ${width} ${height - bottomRightPathParams.p}`,
-    traceBottomRight(bottomRightPathParams),
-    `L ${bottomLeftPathParams.p} ${height}`,
-    traceBottomLeft(bottomLeftPathParams),
-    `L 0 ${topLeftPathParams.p}`,
-    traceTopLeft(topLeftPathParams),
-    "Z",
-  ];
-
-  return segments.join(" ");
-}
-
-function traceTopRight({
-  cornerRadius,
-  a,
-  b,
-  c,
-  d,
-  p,
-  arcSectionLength,
-}: BezierPatch) {
-  if (cornerRadius) {
-    return formatSegment`
-    c ${a} 0 ${a + b} 0 ${a + b + c} ${d}
-    a ${cornerRadius} ${cornerRadius} 0 0 1 ${arcSectionLength} ${arcSectionLength}
-    c ${d} ${c}
-        ${d} ${b + c}
-        ${d} ${a + b + c}`;
-  }
-  return formatSegment`l ${p} 0`;
-}
-
-function traceBottomRight({
-  cornerRadius,
-  a,
-  b,
-  c,
-  d,
-  p,
-  arcSectionLength,
-}: BezierPatch) {
-  if (cornerRadius) {
-    return formatSegment`
-    c 0 ${a}
-      0 ${a + b}
-      ${-d} ${a + b + c}
-    a ${cornerRadius} ${cornerRadius} 0 0 1 -${arcSectionLength} ${arcSectionLength}
-    c ${-c} ${d}
-      ${-(b + c)} ${d}
-      ${-(a + b + c)} ${d}`;
-  }
-  return formatSegment`l 0 ${p}`;
-}
-
-function traceBottomLeft({
-  cornerRadius,
-  a,
-  b,
-  c,
-  d,
-  p,
-  arcSectionLength,
-}: BezierPatch) {
-  if (cornerRadius) {
-    return formatSegment`
-    c ${-a} 0
-      ${-(a + b)} 0
-      ${-(a + b + c)} ${-d}
-    a ${cornerRadius} ${cornerRadius} 0 0 1 -${arcSectionLength} -${arcSectionLength}
-    c ${-d} ${-c}
-      ${-d} ${-(b + c)}
-      ${-d} ${-(a + b + c)}`;
-  }
-  return formatSegment`l ${-p} 0`;
-}
-
-function traceTopLeft({
-  cornerRadius,
-  a,
-  b,
-  c,
-  d,
-  p,
-  arcSectionLength,
-}: BezierPatch) {
-  if (cornerRadius) {
-    return formatSegment`
-    c 0 ${-a}
-      0 ${-(a + b)}
-      ${d} ${-(a + b + c)}
-    a ${cornerRadius} ${cornerRadius} 0 0 1 ${arcSectionLength} -${arcSectionLength}
-    c ${c} ${-d}
-      ${b + c} ${-d}
-      ${a + b + c} ${-d}`;
-  }
-  return formatSegment`l 0 ${-p}`;
-}
-
-function degToRad(degrees: number) {
-  return (degrees * Math.PI) / 180;
-}
-
-function formatSegment(strings: TemplateStringsArray, ...values: number[]) {
-  return strings.reduce((acc, str, index) => {
-    const value = values[index];
-    if (value !== undefined) {
-      return acc + str + value.toFixed(4);
-    }
-    return acc + str;
-  }, "");
-}
 
 export default ExpoSquircle;

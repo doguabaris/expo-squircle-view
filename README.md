@@ -39,17 +39,19 @@ export function Card() {
 
 ### `RoundedSurfaceOptions`
 
-| Prop                | Type           | Default      | Description                                                      |
-|---------------------|----------------|--------------|------------------------------------------------------------------|
-| `baseRadius`        | `number`       | `0`          | Base radius applied when individual corners are not provided.    |
-| `topLeftRadius`     | `number`       | `baseRadius` | Overrides the top-left radius.                                   |
-| `topRightRadius`    | `number`       | `baseRadius` | Overrides the top-right radius.                                  |
-| `bottomRightRadius` | `number`       | `baseRadius` | Overrides the bottom-right radius.                               |
-| `bottomLeftRadius`  | `number`       | `baseRadius` | Overrides the bottom-left radius.                                |
-| `smoothFactor`      | `number (0-1)` | required     | Corner smoothing value matching Figma’s interpretation.          |
-| `surfaceColor`      | `ColorValue`   | `'#000'`     | Fill color for the squircle.                                     |
-| `borderColor`       | `ColorValue`   | `'#000'`     | Stroke color when `borderWidth` is greater than zero.            |
-| `borderWidth`       | `number`       | `0`          | Stroke width in logical pixels (auto-clamped to avoid overlaps). |
+| Prop                | Type           | Default      | Description                                                                                  |
+|---------------------|----------------|--------------|----------------------------------------------------------------------------------------------|
+| `baseRadius`        | `number`       | `0`          | Base radius applied when individual corners are not provided.                                |
+| `topLeftRadius`     | `number`       | `baseRadius` | Overrides the top-left radius.                                                               |
+| `topRightRadius`    | `number`       | `baseRadius` | Overrides the top-right radius.                                                              |
+| `bottomRightRadius` | `number`       | `baseRadius` | Overrides the bottom-right radius.                                                           |
+| `bottomLeftRadius`  | `number`       | `baseRadius` | Overrides the bottom-left radius.                                                            |
+| `smoothFactor`      | `number (0-1)` | required     | Required smoothing factor; values outside 0-1 are clamped and missing values throw an error. |
+| `surfaceColor`      | `ColorValue`   | `'#000'`     | Fill color for the squircle.                                                                 |
+| `borderColor`       | `ColorValue`   | `'#000'`     | Stroke color when `borderWidth` is greater than zero.                                        |
+| `borderWidth`       | `number`       | `0`          | Stroke width in logical pixels (auto-clamped to avoid overlaps).                             |
+
+Passing `squircleParams` without `smoothFactor` (or with a non-numeric value) will throw an error to surface the misconfiguration early.
 
 `Squircle` forwards every `View` prop, so layout, accessibility, and touch handlers work exactly as they would on a normal React Native `View`.
 
