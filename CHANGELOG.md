@@ -2,7 +2,7 @@
 
 All notable changes to `expo-squircle` are documented here.
 
-## [Unreleased]
+## [0.2.0] - 2025-11-12
 
 ### Fixed
 
@@ -16,8 +16,10 @@ All notable changes to `expo-squircle` are documented here.
 
 - Moved squircle geometry utilities and caches into `src/internal/*` modules to
   keep the main component lightweight and simplify unit testing.
+- Rebuilt `ExpoSquircle.tsx` so the SVG fill and border share a clip-path mask,
+  keeping strokes inside the squircle without adjusting corner radii.
 
-## [1.0.0] - 2025-11-12
+## [0.1.0] - 2025-11-12
 
 ### Added
 

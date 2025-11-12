@@ -1,6 +1,6 @@
 {
 	"name": "expo-squircle",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Figma-style squircle background component for Expo and React Native apps.",
 	"main": "build/index.js",
 	"types": "build/index.d.ts",
